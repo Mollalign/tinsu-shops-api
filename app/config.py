@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://neondb_owner:npg_TvZAhdsjm37U@ep-fancy-sound-ax5cs0qq-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+    DATABASE_URL: str = "postgresql+asyncpg://neondb_owner:npg_TvZAhdsjm37U@ep-fancy-sound-ax5cs0qq-pooler.c-4.us-east-2.aws.neon.tech/neondb?ssl=true"
 
     # JWT
     JWT_SECRET_KEY: str = "change-me-in-production-use-a-long-random-secret"
