@@ -2,11 +2,11 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.common.enums import ActorType, PaymentMethod
+from app.common.enums import ActorType
 from app.database import Base
 
 
@@ -30,10 +30,18 @@ class Sale(Base):
     )
     sold_by_type: Mapped[ActorType] = mapped_column(nullable=False)
     sold_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    payment_method: Mapped[PaymentMethod] = mapped_column(nullable=False)
+
+    # Kept nullable — historical rows may have a value; new sales do not use it
+    payment_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    # Idempotency — prevents duplicate sales on mobile retry
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(64), unique=True, nullable=True
     )
 
     # Relationships

@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.common.enums import ActorType, PaymentMethod
+from app.common.enums import ActorType
 
 
 class SaleItemRequest(BaseModel):
@@ -13,7 +13,11 @@ class SaleItemRequest(BaseModel):
 
 
 class SaleRequest(BaseModel):
-    payment_method: PaymentMethod
+    """
+    Simple sale request — items only.
+    The server owns all pricing, stock validation, and total calculation.
+    Payment method is not part of the sale flow anymore.
+    """
     items: list[SaleItemRequest] = Field(..., min_length=1)
 
 
@@ -34,7 +38,6 @@ class SoldByResponse(BaseModel):
 class SaleResponse(BaseModel):
     id: UUID
     shop_id: UUID
-    payment_method: PaymentMethod
     total_amount: Decimal
     items: list[SaleItemResponse]
     sold_by: SoldByResponse
@@ -44,13 +47,12 @@ class SaleResponse(BaseModel):
 
 
 class SaleListResponse(BaseModel):
-    """Lightweight sale row for list views."""
+    """Lightweight sale row for list/history views."""
     id: UUID
     shop_id: UUID
-    payment_method: PaymentMethod
     total_amount: Decimal
-    sold_by_type: ActorType
-    sold_by_id: UUID
+    items_count: int
+    sold_by_name: str
     created_at: datetime
 
     model_config = {"from_attributes": True}

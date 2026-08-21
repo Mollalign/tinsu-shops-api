@@ -5,17 +5,17 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.common.enums import ActorType, InventoryMovementType, PaymentMethod
+from app.common.enums import ActorType, InventoryMovementType
 from app.common.exceptions import (
     EmptySaleError,
     InactiveProductError,
     InsufficientStockError,
     ProductNotFoundError,
     SaleNotFoundError,
-    UnauthorizedShopAccessError,
 )
 from app.common.pagination import Page, PaginationParams
 from app.inventory.models import InventoryMovement
@@ -23,7 +23,6 @@ from app.owners.models import Owner
 from app.products.models import Product
 from app.sales.models import Sale, SaleItem
 from app.sales.schemas import SaleItemResponse, SaleRequest, SaleResponse, SoldByResponse
-from app.shops.service import get_shop_for_owner
 from app.workers.models import Worker
 
 
@@ -33,11 +32,28 @@ async def create_sale(
     actor_type: ActorType,
     actor_id: UUID,
     db: AsyncSession,
+    idempotency_key: str | None = None,
 ) -> SaleResponse:
+    """
+    Atomic sale creation.
+
+    Steps:
+    1. Check idempotency — return existing sale if key already used.
+    2. Lock product rows (prevents oversell under concurrency).
+    3. Validate every product (active, in-shop, sufficient stock).
+    4. Calculate all prices and totals server-side.
+    5. Create Sale + SaleItems + deduct stock + InventoryMovements in one transaction.
+    """
     if not data.items:
         raise EmptySaleError()
 
-    # Load all requested products with row-level locks for concurrency safety
+    # ── Idempotency check ──────────────────────────────────────────────────
+    if idempotency_key:
+        existing = await _find_by_idempotency_key(idempotency_key, shop_id, db)
+        if existing:
+            return existing
+
+    # ── Lock product rows for concurrency safety ───────────────────────────
     product_ids = [item.product_id for item in data.items]
 
     locked_result = await db.execute(
@@ -47,7 +63,7 @@ async def create_sale(
     )
     products_map: dict[UUID, Product] = {p.id: p for p in locked_result.scalars().all()}
 
-    # Validate all products
+    # ── Validate all products ──────────────────────────────────────────────
     for item in data.items:
         product = products_map.get(item.product_id)
         if not product:
@@ -57,28 +73,28 @@ async def create_sale(
         if product.stock_quantity < item.quantity:
             raise InsufficientStockError(product.name, product.stock_quantity)
 
-    # Calculate totals server-side
+    # ── Server-side price calculation ──────────────────────────────────────
     total_amount = Decimal("0")
     sale_items_data = []
     for item in data.items:
         product = products_map[item.product_id]
-        unit_price = product.selling_price
+        unit_price = product.selling_price  # always reads current DB price
         subtotal = unit_price * item.quantity
         total_amount += subtotal
         sale_items_data.append((product, item.quantity, unit_price, subtotal))
 
-    # Create sale
+    # ── Create sale ────────────────────────────────────────────────────────
     sale = Sale(
         shop_id=shop_id,
         sold_by_type=actor_type,
         sold_by_id=actor_id,
-        payment_method=data.payment_method,
         total_amount=total_amount,
+        idempotency_key=idempotency_key,
     )
     db.add(sale)
     await db.flush()
 
-    # Create sale items, decrement stock, create inventory movements
+    # ── Create items + deduct stock + record movements ────────────────────
     response_items = []
     for product, qty, unit_price, subtotal in sale_items_data:
         sale_item = SaleItem(
@@ -113,21 +129,66 @@ async def create_sale(
             )
         )
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Race condition on idempotency_key unique constraint — return existing sale
+        await db.rollback()
+        if idempotency_key:
+            existing = await _find_by_idempotency_key(idempotency_key, shop_id, db)
+            if existing:
+                return existing
+        raise
+
     await db.refresh(sale)
 
-    # Resolve actor name
     actor_name = await _resolve_actor_name(actor_type, actor_id, db)
 
     return SaleResponse(
         id=sale.id,
         shop_id=sale.shop_id,
-        payment_method=sale.payment_method,
         total_amount=sale.total_amount,
         items=response_items,
         sold_by=SoldByResponse(
             type=actor_type,
             id=actor_id,
+            name=actor_name,
+        ),
+        created_at=sale.created_at,
+    )
+
+
+async def _find_by_idempotency_key(
+    key: str, shop_id: UUID, db: AsyncSession
+) -> SaleResponse | None:
+    """Return a completed sale if this idempotency key was already used."""
+    result = await db.execute(
+        select(Sale)
+        .where(Sale.idempotency_key == key, Sale.shop_id == shop_id)
+        .options(selectinload(Sale.items).selectinload(SaleItem.product))
+    )
+    sale = result.scalar_one_or_none()
+    if not sale:
+        return None
+
+    actor_name = await _resolve_actor_name(sale.sold_by_type, sale.sold_by_id, db)
+    return SaleResponse(
+        id=sale.id,
+        shop_id=sale.shop_id,
+        total_amount=sale.total_amount,
+        items=[
+            SaleItemResponse(
+                product_id=item.product_id,
+                product_name=item.product.name,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                subtotal=item.subtotal,
+            )
+            for item in sale.items
+        ],
+        sold_by=SoldByResponse(
+            type=sale.sold_by_type,
+            id=sale.sold_by_id,
             name=actor_name,
         ),
         created_at=sale.created_at,
@@ -151,18 +212,29 @@ async def list_sales(
     params: PaginationParams,
     date_from: date | None = None,
     date_to: date | None = None,
-    payment_method: PaymentMethod | None = None,
     worker_id: UUID | None = None,
-) -> Page[Sale]:
-    query = select(Sale).where(Sale.shop_id == shop_id)
+) -> Page:
+    """
+    Return lightweight sale list rows with items_count and sold_by_name.
+    No payment filter — payment method is no longer part of the workflow.
+    """
+    query = (
+        select(
+            Sale,
+            func.count(SaleItem.id).label("items_count"),
+        )
+        .outerjoin(SaleItem, SaleItem.sale_id == Sale.id)
+        .where(Sale.shop_id == shop_id)
+        .group_by(Sale.id)
+    )
 
     if date_from:
-        query = query.where(Sale.created_at >= datetime(date_from.year, date_from.month, date_from.day, tzinfo=UTC))
+        query = query.where(
+            Sale.created_at >= datetime(date_from.year, date_from.month, date_from.day, tzinfo=UTC)
+        )
     if date_to:
         end = datetime(date_to.year, date_to.month, date_to.day, tzinfo=UTC) + timedelta(days=1)
         query = query.where(Sale.created_at < end)
-    if payment_method:
-        query = query.where(Sale.payment_method == payment_method)
     if worker_id:
         query = query.where(
             Sale.sold_by_type == ActorType.WORKER,
@@ -174,10 +246,27 @@ async def list_sales(
     )
     total = count_result.scalar_one()
 
-    result = await db.execute(
+    rows = await db.execute(
         query.order_by(Sale.created_at.desc()).offset(params.offset).limit(params.limit)
     )
-    return Page.create(list(result.scalars().all()), total, params)
+
+    # Build list items with sold_by_name resolved
+    from app.sales.schemas import SaleListResponse
+    items = []
+    for sale, items_count in rows.all():
+        actor_name = await _resolve_actor_name(sale.sold_by_type, sale.sold_by_id, db)
+        items.append(
+            SaleListResponse(
+                id=sale.id,
+                shop_id=sale.shop_id,
+                total_amount=sale.total_amount,
+                items_count=items_count,
+                sold_by_name=actor_name,
+                created_at=sale.created_at,
+            )
+        )
+
+    return Page.create(items, total, params)
 
 
 async def get_sale_detail(shop_id: UUID, sale_id: UUID, db: AsyncSession) -> SaleResponse:
@@ -195,7 +284,6 @@ async def get_sale_detail(shop_id: UUID, sale_id: UUID, db: AsyncSession) -> Sal
     return SaleResponse(
         id=sale.id,
         shop_id=sale.shop_id,
-        payment_method=sale.payment_method,
         total_amount=sale.total_amount,
         items=[
             SaleItemResponse(

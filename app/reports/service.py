@@ -8,13 +8,11 @@ import pytz
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.enums import ActorType, PaymentMethod
+from app.common.enums import ActorType
 from app.config import settings
-from app.inventory.models import InventoryMovement
 from app.products.models import Product
 from app.reports.schemas import (
     OwnerDashboardResponse,
-    PaymentBreakdown,
     ShopDailySummary,
     TodayReportResponse,
     WorkerTodayResponse,
@@ -65,14 +63,11 @@ async def get_today_report(
     )
     items_sold = items_result.scalar_one() or 0
 
-    # Payment breakdown
-    breakdown = await _payment_breakdown(shop_id, start, end, db)
-
     # Low stock count
     low_stock_result = await db.execute(
         select(func.count()).select_from(Product).where(
             Product.shop_id == shop_id,
-            Product.is_active == True,
+            Product.is_active == True,  # noqa: E712
             Product.stock_quantity <= Product.low_stock_threshold,
         )
     )
@@ -83,7 +78,6 @@ async def get_today_report(
         total_sales=total_sales,
         number_of_sales=num_sales,
         items_sold=items_sold,
-        payment_breakdown=breakdown,
         low_stock_count=low_stock_count,
     )
 
@@ -117,13 +111,10 @@ async def get_worker_today(
         )
     )
 
-    breakdown = await _payment_breakdown(shop_id, start, end, db, worker_id=worker_id)
-
     return WorkerTodayResponse(
         total_sales=row.total_sales or Decimal("0"),
         number_of_sales=row.num_sales or 0,
         items_sold=items_result.scalar_one() or 0,
-        payment_breakdown=breakdown,
     )
 
 
@@ -131,7 +122,7 @@ async def get_owner_dashboard(owner_id: UUID, db: AsyncSession) -> OwnerDashboar
     start, end = _today_utc_range()
 
     shops_result = await db.execute(
-        select(Shop).where(Shop.owner_id == owner_id, Shop.is_active == True)
+        select(Shop).where(Shop.owner_id == owner_id, Shop.is_active == True)  # noqa: E712
     )
     shops = shops_result.scalars().all()
 
@@ -162,37 +153,3 @@ async def get_owner_dashboard(owner_id: UUID, db: AsyncSession) -> OwnerDashboar
         )
 
     return OwnerDashboardResponse(shops=shop_summaries, total_today_sales=total_today)
-
-
-async def _payment_breakdown(
-    shop_id: UUID,
-    start: datetime,
-    end: datetime,
-    db: AsyncSession,
-    worker_id: UUID | None = None,
-) -> PaymentBreakdown:
-    query = select(Sale.payment_method, func.sum(Sale.total_amount)).where(
-        Sale.shop_id == shop_id,
-        Sale.created_at >= start,
-        Sale.created_at < end,
-    )
-    if worker_id:
-        query = query.where(
-            Sale.sold_by_type == ActorType.WORKER, Sale.sold_by_id == worker_id
-        )
-    query = query.group_by(Sale.payment_method)
-
-    result = await db.execute(query)
-    rows = result.all()
-
-    breakdown = PaymentBreakdown()
-    for method, total in rows:
-        if method == PaymentMethod.CASH:
-            breakdown.cash = total or Decimal("0")
-        elif method == PaymentMethod.TELEBIRR:
-            breakdown.telebirr = total or Decimal("0")
-        elif method == PaymentMethod.CBE_BIRR:
-            breakdown.cbe_birr = total or Decimal("0")
-        elif method == PaymentMethod.OTHER:
-            breakdown.other = total or Decimal("0")
-    return breakdown

@@ -1,13 +1,13 @@
 """
 Pytest configuration and shared fixtures.
 Uses an in-memory SQLite database via aiosqlite for fast, isolated tests.
+Each test gets a fresh set of rows via transaction rollback.
 """
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections.abc import AsyncGenerator
-from typing import Any
-from uuid import UUID
 
 import pytest
 import pytest_asyncio
@@ -25,7 +25,7 @@ from app.main import create_app
 
 
 # ---------------------------------------------------------------------------
-# Event loop
+# Event loop — session-scoped
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
@@ -36,15 +36,13 @@ def event_loop():
 
 
 # ---------------------------------------------------------------------------
-# Database
+# Database — function-scoped so each test gets isolated tables
 # ---------------------------------------------------------------------------
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-
-
-@pytest_asyncio.fixture(scope="session")
-async def engine():
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+@pytest_asyncio.fixture
+async def db_engine():
+    """Fresh in-memory SQLite engine per test to guarantee isolation."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
@@ -54,15 +52,15 @@ async def engine():
 
 
 @pytest_asyncio.fixture
-async def db_session(engine) -> AsyncGenerator[AsyncSession, None]:
-    TestingSessionLocal = async_sessionmaker(
-        engine,
+async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
+    SessionLocal = async_sessionmaker(
+        db_engine,
         class_=AsyncSession,
         expire_on_commit=False,
         autocommit=False,
         autoflush=False,
     )
-    async with TestingSessionLocal() as session:
+    async with SessionLocal() as session:
         yield session
         await session.rollback()
 
@@ -87,13 +85,15 @@ async def app_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, No
 
 
 # ---------------------------------------------------------------------------
-# Helper: create owner directly in DB
+# Data fixtures
 # ---------------------------------------------------------------------------
 
 @pytest_asyncio.fixture
 async def owner(db_session: AsyncSession):
     from app.owners.models import Owner
-    o = Owner(name="Tinsu", phone="0912345678", pin_hash=hash_pin("1234"))
+    # Use a unique phone per test run to avoid conflicts in shared sessions
+    phone = f"091{uuid.uuid4().hex[:7]}"
+    o = Owner(name="Tinsu", phone=phone, pin_hash=hash_pin("1234"))
     db_session.add(o)
     await db_session.commit()
     await db_session.refresh(o)
@@ -103,7 +103,8 @@ async def owner(db_session: AsyncSession):
 @pytest_asyncio.fixture
 async def owner_token(app_client: AsyncClient, owner) -> str:
     resp = await app_client.post(
-        "/api/v1/auth/owner/login", json={"phone": "0912345678", "pin": "1234"}
+        "/api/v1/auth/owner/login",
+        json={"phone": owner.phone, "pin": "1234"},
     )
     assert resp.status_code == 200, resp.text
     return resp.json()["access_token"]
