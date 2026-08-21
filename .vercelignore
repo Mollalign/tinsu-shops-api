@@ -1,0 +1,9 @@
+.venv/
+.pytest_cache/
+.git/
+.gitignore
+__pycache__/
+*.pyc
+app/**/__pycache__/
+tests/
+uv.lock
