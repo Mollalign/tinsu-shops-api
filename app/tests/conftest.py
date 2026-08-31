@@ -145,6 +145,16 @@ async def worker_token(app_client: AsyncClient, shop, worker) -> str:
 
 
 @pytest_asyncio.fixture
+async def category(db_session: AsyncSession, shop):
+    from app.categories.models import Category
+    c = Category(shop_id=shop.id, name="Drinks")
+    db_session.add(c)
+    await db_session.commit()
+    await db_session.refresh(c)
+    return c
+
+
+@pytest_asyncio.fixture
 async def product(db_session: AsyncSession, shop):
     from decimal import Decimal
     from app.products.models import Product
@@ -154,7 +164,6 @@ async def product(db_session: AsyncSession, shop):
         selling_price=Decimal("35.00"),
         stock_quantity=50,
         low_stock_threshold=5,
-        category="Drinks",
     )
     db_session.add(p)
     await db_session.commit()

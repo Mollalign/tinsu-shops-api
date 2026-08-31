@@ -52,3 +52,6 @@ class Shop(Base):
     products: Mapped[list["Product"]] = relationship(  # noqa: F821
         "Product", back_populates="shop", lazy="select"
     )
+    categories: Mapped[list["Category"]] = relationship(  # noqa: F821
+        "Category", back_populates="shop", lazy="select"
+    )

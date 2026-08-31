@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.auth.router import router as auth_router
+from app.categories.router import router as categories_router
 from app.common.exceptions import AppException
 from app.config import settings
 from app.inventory.router import router as inventory_router
@@ -57,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(owners_router, prefix=prefix)
     app.include_router(shops_router, prefix=prefix)
     app.include_router(workers_router, prefix=prefix)
+    app.include_router(categories_router, prefix=prefix)
     app.include_router(products_router, prefix=prefix)
     app.include_router(inventory_router, prefix=prefix)
     app.include_router(sales_router, prefix=prefix)

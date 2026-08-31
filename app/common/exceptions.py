@@ -161,3 +161,22 @@ class PhoneAlreadyExistsError(AppException):
             "PHONE_ALREADY_EXISTS",
             "This phone number is already registered.",
         )
+
+
+class DuplicateCategoryNameError(AppException):
+    def __init__(self, name: str = ""):
+        super().__init__(
+            status.HTTP_409_CONFLICT,
+            "DUPLICATE_CATEGORY_NAME",
+            f"A category named '{name}' already exists in this shop.",
+        )
+
+
+# --- 404 Not Found (categories) ---
+class CategoryNotFoundError(AppException):
+    def __init__(self):
+        super().__init__(
+            status.HTTP_404_NOT_FOUND,
+            "CATEGORY_NOT_FOUND",
+            "Category not found.",
+        )

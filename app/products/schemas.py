@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class ProductCreate(BaseModel):
@@ -10,15 +10,16 @@ class ProductCreate(BaseModel):
     selling_price: Decimal = Field(..., gt=0, decimal_places=2)
     initial_stock: int = Field(0, ge=0, description="Starting stock quantity")
     low_stock_threshold: int = Field(5, ge=0)
-    category: str | None = Field(None, max_length=100)
+    category_id: UUID | None = Field(None, description="Optional category UUID")
     photo_url: str | None = Field(None, max_length=2048)
 
 
 class ProductUpdate(BaseModel):
+    """PATCH schema — all fields optional. category_id=null clears it; omit to leave unchanged."""
     name: str | None = Field(None, min_length=1, max_length=255)
     selling_price: Decimal | None = Field(None, gt=0, decimal_places=2)
     low_stock_threshold: int | None = Field(None, ge=0)
-    category: str | None = None
+    category_id: UUID | None = None
     photo_url: str | None = None
     is_active: bool | None = None
 
@@ -31,7 +32,8 @@ class ProductResponse(BaseModel):
     selling_price: Decimal
     stock_quantity: int
     low_stock_threshold: int
-    category: str | None
+    category_id: UUID | None
+    category_name: str | None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -46,7 +48,8 @@ class ProductSearchResponse(BaseModel):
     photo_url: str | None
     selling_price: Decimal
     stock_quantity: int
-    category: str | None
+    category_id: UUID | None
+    category_name: str | None
     is_active: bool
 
     model_config = {"from_attributes": True}

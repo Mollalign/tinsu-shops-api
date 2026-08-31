@@ -23,15 +23,18 @@ router = APIRouter(prefix="/shops/{shop_id}/products", tags=["Products"])
     "",
     response_model=Page[ProductResponse],
     summary="List Products",
-    description="List all active products in a shop. Accessible by both owners and workers.",
+    description="List active products in a shop. Filter by category_id. Accessible by owners and workers.",
 )
 async def list_products(
     shop_id: UUID,
     current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     params: Annotated[PaginationParams, Depends()],
+    category_id: UUID | None = Query(None, description="Filter by category UUID"),
 ) -> Page[ProductResponse]:
-    page = await product_service.list_products(shop_id, db, params)
+    page = await product_service.list_products(
+        shop_id, db, params, category_id=category_id
+    )
     return Page[ProductResponse](
         items=[ProductResponse.model_validate(p) for p in page.items],
         page=page.page,
@@ -45,15 +48,18 @@ async def list_products(
     "/search",
     response_model=list[ProductSearchResponse],
     summary="Search Products",
-    description="Case-insensitive product search by name or category. Accessible to workers and owners.",
+    description="Case-insensitive product search by name. Optional category filter. Accessible to workers and owners.",
 )
 async def search_products(
     shop_id: UUID,
     q: str = Query(..., min_length=1, max_length=100, description="Search query"),
+    category_id: UUID | None = Query(None, description="Narrow results to a category"),
     current_user: Annotated[AuthenticatedUser, Depends(get_current_user)] = None,
     db: Annotated[AsyncSession, Depends(get_db)] = None,
 ) -> list[ProductSearchResponse]:
-    products = await product_service.search_products(shop_id, q, db)
+    products = await product_service.search_products(
+        shop_id, q, db, category_id=category_id
+    )
     return [ProductSearchResponse.model_validate(p) for p in products]
 
 
@@ -77,8 +83,7 @@ async def low_stock_products(
     response_model=ProductResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create Product",
-    description="Create a new product with optional initial stock. "
-                "All operations are atomic — product creation and inventory movement happen together.",
+    description="Create a new product with optional initial stock and category. Owner only.",
 )
 async def create_product(
     shop_id: UUID,
@@ -101,7 +106,6 @@ async def create_product(
     "/{product_id}",
     response_model=ProductResponse,
     summary="Get Product",
-    description="Get a single product by ID.",
 )
 async def get_product(
     shop_id: UUID,
@@ -117,7 +121,7 @@ async def get_product(
     "/{product_id}",
     response_model=ProductResponse,
     summary="Update Product",
-    description="Update product details (price, threshold, etc.). Owner only.",
+    description="Pass category_id=null to clear, omit to leave unchanged. Owner only.",
 )
 async def update_product(
     shop_id: UUID,
@@ -126,7 +130,9 @@ async def update_product(
     current_user: Annotated[AuthenticatedUser, Depends(require_owner)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ProductResponse:
-    product = await product_service.update_product(shop_id, product_id, current_user.id, body, db)
+    product = await product_service.update_product(
+        shop_id, product_id, current_user.id, body, db
+    )
     return ProductResponse.model_validate(product)
 
 
@@ -134,7 +140,6 @@ async def update_product(
     "/{product_id}",
     response_model=ProductResponse,
     summary="Deactivate Product",
-    description="Soft-delete a product (sets is_active=false). Historical sales are preserved.",
 )
 async def deactivate_product(
     shop_id: UUID,
@@ -142,5 +147,7 @@ async def deactivate_product(
     current_user: Annotated[AuthenticatedUser, Depends(require_owner)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ProductResponse:
-    product = await product_service.deactivate_product(shop_id, product_id, current_user.id, db)
+    product = await product_service.deactivate_product(
+        shop_id, product_id, current_user.id, db
+    )
     return ProductResponse.model_validate(product)
