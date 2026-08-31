@@ -11,6 +11,7 @@ from app.config import settings
 from app.inventory.router import router as inventory_router
 from app.owners.router import router as owners_router
 from app.products.router import router as products_router
+from app.public.router import router as public_router
 from app.reports.router import router as reports_router
 from app.sales.router import router as sales_router
 from app.shops.router import router as shops_router
@@ -55,6 +56,7 @@ def create_app() -> FastAPI:
     # API v1 routers
     prefix = "/api/v1"
     app.include_router(auth_router, prefix=prefix)
+    app.include_router(public_router, prefix=prefix)
     app.include_router(owners_router, prefix=prefix)
     app.include_router(shops_router, prefix=prefix)
     app.include_router(workers_router, prefix=prefix)

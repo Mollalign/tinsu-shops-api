@@ -42,7 +42,7 @@ async def create_worker(
 ) -> WorkerCreateResponse:
     await get_shop_for_owner(shop_id, owner_id, db)
 
-    plain_pin = data.pin or generate_pin(6)
+    plain_pin = data.pin or generate_pin(4)
     worker = Worker(
         shop_id=shop_id,
         name=data.name,
@@ -93,7 +93,7 @@ async def reset_worker_pin(
 ) -> str:
     """Returns the new plain-text PIN (shown once only)."""
     worker = await get_worker(shop_id, worker_id, owner_id, db)
-    plain_pin = data.new_pin or generate_pin(6)
+    plain_pin = data.new_pin or generate_pin(4)
     worker.pin_hash = hash_pin(plain_pin)
     await db.commit()
     return plain_pin

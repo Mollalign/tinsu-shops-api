@@ -27,7 +27,7 @@ def verify_pin(plain_pin: str, hashed_pin: str) -> bool:
     return pwd_context.verify(plain_pin, hashed_pin)
 
 
-def generate_pin(length: int = 6) -> str:
+def generate_pin(length: int = 4) -> str:
     """Generate a cryptographically random numeric PIN."""
     return "".join(secrets.choice(string.digits) for _ in range(length))
 
