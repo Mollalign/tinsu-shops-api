@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, String, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ENUM, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.common.enums import ActorType
@@ -31,8 +31,16 @@ class Sale(Base):
     sold_by_type: Mapped[ActorType] = mapped_column(nullable=False)
     sold_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
 
-    # Kept nullable — historical rows may have a value; new sales do not use it
-    payment_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Kept nullable — historical rows may have a value; new sales do not use it.
+    # Must match the existing PostgreSQL enum type 'paymentmethod' exactly.
+    payment_method: Mapped[str | None] = mapped_column(
+        ENUM(
+            "cash", "telebirr", "cbeBirr", "other",
+            name="paymentmethod",
+            create_type=False,  # type already exists in the DB
+        ),
+        nullable=True,
+    )
 
     total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

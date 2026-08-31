@@ -59,12 +59,12 @@ def create_app() -> FastAPI:
     app.include_router(public_router, prefix=prefix)
     app.include_router(owners_router, prefix=prefix)
     app.include_router(shops_router, prefix=prefix)
+    app.include_router(reports_router, prefix=prefix)  # before workers — /me/today must match first
     app.include_router(workers_router, prefix=prefix)
     app.include_router(categories_router, prefix=prefix)
     app.include_router(products_router, prefix=prefix)
     app.include_router(inventory_router, prefix=prefix)
     app.include_router(sales_router, prefix=prefix)
-    app.include_router(reports_router, prefix=prefix)
 
     @app.get("/api/health", tags=["Health"])
     async def health_check():

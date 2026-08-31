@@ -123,19 +123,3 @@ async def disable_worker(
 ) -> WorkerResponse:
     worker = await worker_service.disable_worker(shop_id, worker_id, current_user.id, db)
     return WorkerResponse.model_validate(worker)
-
-
-@router.get(
-    "/me/today",
-    response_model=None,
-    summary="Worker Today's Sales",
-    description="Return the authenticated worker's own sales for today.",
-    include_in_schema=True,
-)
-async def worker_today(
-    shop_id: UUID,
-    current_user: Annotated[AuthenticatedUser, Depends()],
-    db: Annotated[AsyncSession, Depends(get_db)],
-):
-    """Handled in the reports router under the same path for proper auth."""
-    pass

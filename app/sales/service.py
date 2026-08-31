@@ -54,14 +54,23 @@ async def create_sale(
             return existing
 
     # ── Lock product rows for concurrency safety ───────────────────────────
+    # Lock ONLY the products table — PostgreSQL forbids FOR UPDATE when a
+    # LEFT OUTER JOIN is present (nullable side). We lock just the IDs first,
+    # then fetch the full objects in a separate query.
     product_ids = [item.product_id for item in data.items]
 
-    locked_result = await db.execute(
-        select(Product)
+    await db.execute(
+        select(Product.id)
         .where(Product.id.in_(product_ids), Product.shop_id == shop_id)
         .with_for_update()
     )
-    products_map: dict[UUID, Product] = {p.id: p for p in locked_result.scalars().all()}
+
+    # Now fetch the full product rows (no lock needed — rows are already held).
+    fetched = await db.execute(
+        select(Product)
+        .where(Product.id.in_(product_ids), Product.shop_id == shop_id)
+    )
+    products_map: dict[UUID, Product] = {p.id: p for p in fetched.scalars().all()}
 
     # ── Validate all products ──────────────────────────────────────────────
     for item in data.items:
