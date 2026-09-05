@@ -35,5 +35,5 @@ async def worker_login(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TokenResponse:
     return await auth_service.worker_login(
-        str(body.shop_id), str(body.worker_id), body.pin, db
+        body.shop_id, body.worker_id, body.pin, db
     )

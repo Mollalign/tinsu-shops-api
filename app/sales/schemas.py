@@ -56,3 +56,24 @@ class SaleListResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class RecentProductItem(BaseModel):
+    """Lightweight product item returned by the recent-products endpoint."""
+    id: UUID
+    shop_id: UUID
+    name: str
+    photo_url: str | None
+    selling_price: Decimal
+    stock_quantity: int
+    low_stock_threshold: int
+    category_id: UUID | None
+    category_name: str | None
+    is_active: bool
+
+    model_config = {"from_attributes": True}
+
+
+class RecentProductsResponse(BaseModel):
+    """Response for GET /shops/{shop_id}/workers/me/recent-products."""
+    items: list[RecentProductItem]

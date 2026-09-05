@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,7 +45,7 @@ async def owner_login(phone: str, pin: str, db: AsyncSession) -> TokenResponse:
 
 
 async def worker_login(
-    shop_id: str, worker_id: str, pin: str, db: AsyncSession
+    shop_id: UUID, worker_id: UUID, pin: str, db: AsyncSession
 ) -> TokenResponse:
     # Verify shop exists
     shop_result = await db.execute(select(Shop).where(Shop.id == shop_id, Shop.is_active == True))

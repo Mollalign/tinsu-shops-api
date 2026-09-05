@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import noload
 
 from app.common.enums import ActorType, InventoryMovementType
 from app.common.exceptions import NegativeStockError, ProductNotFoundError
@@ -65,7 +66,9 @@ async def restock_product(
     await get_shop_for_owner(shop_id, owner_id, db)
 
     result = await db.execute(
-        select(Product).where(Product.id == product_id, Product.shop_id == shop_id)
+        select(Product)
+        .where(Product.id == product_id, Product.shop_id == shop_id)
+        .options(noload(Product.category_obj))
         .with_for_update()
     )
     product = result.scalar_one_or_none()
@@ -101,7 +104,9 @@ async def adjust_product_stock(
     await get_shop_for_owner(shop_id, owner_id, db)
 
     result = await db.execute(
-        select(Product).where(Product.id == product_id, Product.shop_id == shop_id)
+        select(Product)
+        .where(Product.id == product_id, Product.shop_id == shop_id)
+        .options(noload(Product.category_obj))
         .with_for_update()
     )
     product = result.scalar_one_or_none()

@@ -99,6 +99,9 @@ async def create_sale(
         sold_by_id=actor_id,
         total_amount=total_amount,
         idempotency_key=idempotency_key,
+        # Set in Python so SQLite (second-precision CURRENT_TIMESTAMP) still
+        # distinguishes sales that complete in the same second.
+        created_at=datetime.now(UTC),
     )
     db.add(sale)
     await db.flush()
@@ -276,6 +279,49 @@ async def list_sales(
         )
 
     return Page.create(items, total, params)
+
+
+async def get_recent_products(
+    shop_id: UUID,
+    worker_id: UUID,
+    limit: int,
+    db: AsyncSession,
+) -> list[Product]:
+    """
+    Return up to ``limit`` unique active products most recently sold by
+    ``worker_id`` in ``shop_id``, ordered by most-recently-sold first.
+
+    Query strategy:
+    1. Subquery – for each product the worker sold in this shop, compute
+       MAX(sale.created_at) so duplicates collapse to a single row.
+    2. Outer query – join Products on that subquery, filter active only,
+       sort DESC on the max timestamp, apply the limit.
+
+    No full sale-history download: a single efficient GROUP BY query.
+    """
+    subq = (
+        select(
+            SaleItem.product_id,
+            func.max(Sale.created_at).label("last_sold_at"),
+        )
+        .join(Sale, Sale.id == SaleItem.sale_id)
+        .where(
+            Sale.shop_id == shop_id,
+            Sale.sold_by_type == ActorType.WORKER,
+            Sale.sold_by_id == worker_id,
+        )
+        .group_by(SaleItem.product_id)
+        .subquery()
+    )
+
+    result = await db.execute(
+        select(Product)
+        .join(subq, Product.id == subq.c.product_id)
+        .where(Product.is_active.is_(True))
+        .order_by(subq.c.last_sold_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
 
 
 async def get_sale_detail(shop_id: UUID, sale_id: UUID, db: AsyncSession) -> SaleResponse:
