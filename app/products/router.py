@@ -10,9 +10,11 @@ from app.database import get_db
 from app.dependencies import AuthenticatedUser, get_current_user, require_owner
 from app.products import service as product_service
 from app.products.schemas import (
+    CategorySearchResult,
     ProductCreate,
     ProductResponse,
     ProductSearchResponse,
+    ProductSearchResult,
     ProductUpdate,
 )
 
@@ -46,9 +48,14 @@ async def list_products(
 
 @router.get(
     "/search",
-    response_model=list[ProductSearchResponse],
+    response_model=ProductSearchResult,
     summary="Search Products",
-    description="Case-insensitive product search by name. Optional category filter. Accessible to workers and owners.",
+    description=(
+        "Case-insensitive product search by name. "
+        "Also returns a matched_category when the query matches a category name "
+        "and no category_id filter is active. "
+        "Accessible to workers and owners."
+    ),
 )
 async def search_products(
     shop_id: UUID,
@@ -56,11 +63,26 @@ async def search_products(
     category_id: UUID | None = Query(None, description="Narrow results to a category"),
     current_user: Annotated[AuthenticatedUser, Depends(get_current_user)] = None,
     db: Annotated[AsyncSession, Depends(get_db)] = None,
-) -> list[ProductSearchResponse]:
-    products = await product_service.search_products(
+) -> ProductSearchResult:
+    matched_cat, products = await product_service.search_products(
         shop_id, q, db, category_id=category_id
     )
-    return [ProductSearchResponse.model_validate(p) for p in products]
+
+    matched_category: CategorySearchResult | None = None
+    if matched_cat is not None:
+        count = await product_service.count_category_products(
+            shop_id, matched_cat.id, db
+        )
+        matched_category = CategorySearchResult(
+            id=matched_cat.id,
+            name=matched_cat.name,
+            product_count=count,
+        )
+
+    return ProductSearchResult(
+        matched_category=matched_category,
+        items=[ProductSearchResponse.model_validate(p) for p in products],
+    )
 
 
 @router.get(

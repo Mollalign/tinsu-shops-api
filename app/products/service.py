@@ -149,13 +149,80 @@ async def deactivate_product(
     return await _get_product(shop_id, product.id, db)
 
 
+async def _find_matching_category(
+    shop_id: UUID, query: str, db: AsyncSession
+) -> Category | None:
+    """Return the best category match for *query* within *shop_id*.
+
+    Tries an exact case-insensitive match first; falls back to a
+    partial (ILIKE) match.  Returns ``None`` when no category matches.
+    """
+    normalized = query.strip().lower()
+
+    # 1. Exact match (case-insensitive)
+    exact = await db.execute(
+        select(Category).where(
+            Category.shop_id == shop_id,
+            func.lower(Category.name) == normalized,
+        )
+    )
+    cat = exact.scalar_one_or_none()
+    if cat:
+        return cat
+
+    # 2. Partial match — return the first alphabetically
+    partial = await db.execute(
+        select(Category)
+        .where(
+            Category.shop_id == shop_id,
+            Category.name.ilike(f"%{query}%"),
+        )
+        .order_by(Category.name.asc())
+        .limit(1)
+    )
+    return partial.scalar_one_or_none()
+
+
+async def count_category_products(
+    shop_id: UUID, category_id: UUID, db: AsyncSession
+) -> int:
+    """Count active products belonging to a category in the given shop."""
+    result = await db.execute(
+        select(func.count(Product.id)).where(
+            Product.shop_id == shop_id,
+            Product.category_id == category_id,
+            Product.is_active == True,  # noqa: E712
+        )
+    )
+    return result.scalar_one()
+
+
 async def search_products(
     shop_id: UUID,
     query: str,
     db: AsyncSession,
     limit: int = 20,
     category_id: UUID | None = None,
-) -> list[Product]:
+) -> tuple[Category | None, list[Product]]:
+    """Search active products by name.
+
+    Also finds the best matching category for the query when no
+    ``category_id`` filter is active, so callers can surface a
+    category-match result to the user.
+
+    Returns
+    -------
+    matched_category
+        The best-matching ``Category`` (or ``None``).
+    products
+        Products whose name matches *query* (optionally filtered by
+        *category_id*).
+    """
+    # Category match — only when caller hasn't already narrowed by category
+    matched_category: Category | None = None
+    if category_id is None:
+        matched_category = await _find_matching_category(shop_id, query, db)
+
     base_q = (
         _product_query()
         .where(
@@ -168,7 +235,7 @@ async def search_products(
         base_q = base_q.where(Product.category_id == category_id)
 
     result = await db.execute(base_q.order_by(Product.name.asc()).limit(limit))
-    return list(result.unique().scalars().all())
+    return matched_category, list(result.unique().scalars().all())
 
 
 async def get_low_stock_products(shop_id: UUID, db: AsyncSession) -> list[Product]:

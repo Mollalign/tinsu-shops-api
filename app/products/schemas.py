@@ -53,3 +53,21 @@ class ProductSearchResponse(BaseModel):
     is_active: bool
 
     model_config = {"from_attributes": True}
+
+
+class CategorySearchResult(BaseModel):
+    """A category matched by name during a unified product/category search."""
+    id: UUID
+    name: str
+    product_count: int
+
+
+class ProductSearchResult(BaseModel):
+    """Combined search result returned by GET /products/search.
+
+    ``matched_category`` is populated when the query matches a category name
+    in the shop (exact match preferred over partial).  It is ``None`` when a
+    ``category_id`` filter is already active (narrowing is already applied).
+    """
+    matched_category: CategorySearchResult | None = None
+    items: list[ProductSearchResponse]

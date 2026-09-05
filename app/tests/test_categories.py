@@ -389,6 +389,9 @@ async def test_search_with_category_filter(
         headers=auth(owner_token),
     )
     assert resp.status_code == 200
-    names = [p["name"] for p in resp.json()]
+    data = resp.json()
+    # When category_id filter is active, matched_category must be None
+    assert data["matched_category"] is None
+    names = [p["name"] for p in data["items"]]
     assert "Coke Drink" in names
     assert "Coke Snack" not in names
