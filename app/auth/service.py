@@ -6,14 +6,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.common.exceptions import (
     InactiveAccountError,
     InvalidCredentialsError,
+    InvalidRefreshTokenError,
     ShopNotFoundError,
     WorkerNotFoundError,
 )
-from app.common.security import create_access_token, verify_pin
+from app.common.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    verify_pin,
+)
 from app.owners.models import Owner
 from app.shops.models import Shop
 from app.workers.models import Worker
-from app.auth.schemas import TokenResponse, TokenUserInfo
+from app.auth.schemas import RefreshRequest, TokenResponse, TokenUserInfo
 from app.common.enums import UserRole
 
 
@@ -27,15 +33,16 @@ async def owner_login(phone: str, pin: str, db: AsyncSession) -> TokenResponse:
     if not owner.is_active:
         raise InactiveAccountError()
 
-    token = create_access_token({
+    token_payload = {
         "sub": str(owner.id),
         "role": UserRole.OWNER.value,
         "name": owner.name,
         "is_active": owner.is_active,
-    })
+    }
 
     return TokenResponse(
-        access_token=token,
+        access_token=create_access_token(token_payload),
+        refresh_token=create_refresh_token(token_payload),
         user=TokenUserInfo(
             id=owner.id,
             role=UserRole.OWNER,
@@ -67,16 +74,17 @@ async def worker_login(
     if not worker.is_active:
         raise InactiveAccountError()
 
-    token = create_access_token({
+    token_payload = {
         "sub": str(worker.id),
         "role": UserRole.WORKER.value,
         "name": worker.name,
         "shop_id": str(shop_id),
         "is_active": worker.is_active,
-    })
+    }
 
     return TokenResponse(
-        access_token=token,
+        access_token=create_access_token(token_payload),
+        refresh_token=create_refresh_token(token_payload),
         user=TokenUserInfo(
             id=worker.id,
             role=UserRole.WORKER,
@@ -84,3 +92,68 @@ async def worker_login(
             shop_id=shop.id,
         ),
     )
+
+
+async def refresh_access_token(refresh_token_str: str, db: AsyncSession) -> TokenResponse:
+    """Issue a new access token + rotated refresh token using a valid refresh token.
+
+    Validates the refresh token, verifies the user is still active in the
+    database, and returns fresh tokens (token rotation). Raises
+    :class:`InvalidRefreshTokenError` for any invalid/expired/unknown token.
+    """
+    payload = decode_refresh_token(refresh_token_str)  # raises on bad token
+
+    role_str: str | None = payload.get("role")
+    sub: str | None = payload.get("sub")
+
+    if not role_str or not sub:
+        raise InvalidRefreshTokenError()
+
+    if role_str == UserRole.OWNER.value:
+        result = await db.execute(select(Owner).where(Owner.id == UUID(sub)))
+        owner = result.scalar_one_or_none()
+        if owner is None or not owner.is_active:
+            raise InvalidRefreshTokenError()
+
+        token_payload = {
+            "sub": str(owner.id),
+            "role": UserRole.OWNER.value,
+            "name": owner.name,
+            "is_active": owner.is_active,
+        }
+        return TokenResponse(
+            access_token=create_access_token(token_payload),
+            refresh_token=create_refresh_token(token_payload),
+            user=TokenUserInfo(id=owner.id, role=UserRole.OWNER, name=owner.name),
+        )
+
+    elif role_str == UserRole.WORKER.value:
+        shop_id_str: str | None = payload.get("shop_id")
+        if not shop_id_str:
+            raise InvalidRefreshTokenError()
+
+        result = await db.execute(select(Worker).where(Worker.id == UUID(sub)))
+        worker = result.scalar_one_or_none()
+        if worker is None or not worker.is_active:
+            raise InvalidRefreshTokenError()
+
+        token_payload = {
+            "sub": str(worker.id),
+            "role": UserRole.WORKER.value,
+            "name": worker.name,
+            "shop_id": str(worker.shop_id),
+            "is_active": worker.is_active,
+        }
+        return TokenResponse(
+            access_token=create_access_token(token_payload),
+            refresh_token=create_refresh_token(token_payload),
+            user=TokenUserInfo(
+                id=worker.id,
+                role=UserRole.WORKER,
+                name=worker.name,
+                shop_id=worker.shop_id,
+            ),
+        )
+
+    else:
+        raise InvalidRefreshTokenError()

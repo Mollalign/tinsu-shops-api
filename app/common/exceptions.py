@@ -99,6 +99,15 @@ class InvalidTokenError(AppException):
         )
 
 
+class InvalidRefreshTokenError(AppException):
+    def __init__(self):
+        super().__init__(
+            status.HTTP_401_UNAUTHORIZED,
+            "INVALID_REFRESH_TOKEN",
+            "Invalid or expired refresh token. Please log in again.",
+        )
+
+
 # --- 403 Forbidden ---
 class UnauthorizedShopAccessError(AppException):
     def __init__(self):

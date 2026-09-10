@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = "change-me-in-production-use-a-long-random-secret"
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30  # 30 days
 
     # Timezone
     BUSINESS_TIMEZONE: str = "Africa/Addis_Ababa"

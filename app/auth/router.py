@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import service as auth_service
-from app.auth.schemas import OwnerLoginRequest, TokenResponse, WorkerLoginRequest
+from app.auth.schemas import OwnerLoginRequest, RefreshRequest, TokenResponse, WorkerLoginRequest
 from app.database import get_db
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -37,3 +37,19 @@ async def worker_login(
     return await auth_service.worker_login(
         body.shop_id, body.worker_id, body.pin, db
     )
+
+
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    summary="Refresh Access Token",
+    description=(
+        "Exchange a valid refresh token for a new access token and a rotated "
+        "refresh token. Returns 401 if the refresh token is expired or invalid."
+    ),
+)
+async def refresh_token(
+    body: RefreshRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TokenResponse:
+    return await auth_service.refresh_access_token(body.refresh_token, db)

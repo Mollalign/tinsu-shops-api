@@ -26,5 +26,10 @@ class TokenUserInfo(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
     user: TokenUserInfo
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(..., description="A valid refresh token obtained at login.")
