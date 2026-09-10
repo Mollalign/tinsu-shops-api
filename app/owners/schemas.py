@@ -19,3 +19,8 @@ class OwnerResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class OwnerChangePinRequest(BaseModel):
+    current_pin: str = Field(..., min_length=4, description="The owner's current PIN")
+    new_pin: str = Field(..., min_length=4, max_length=20, description="The new PIN to set")

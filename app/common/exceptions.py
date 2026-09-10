@@ -172,6 +172,15 @@ class DuplicateCategoryNameError(AppException):
         )
 
 
+class IncorrectCurrentPinError(AppException):
+    def __init__(self):
+        super().__init__(
+            status.HTTP_400_BAD_REQUEST,
+            "INCORRECT_CURRENT_PIN",
+            "The current PIN you entered is incorrect.",
+        )
+
+
 # --- 404 Not Found (categories) ---
 class CategoryNotFoundError(AppException):
     def __init__(self):

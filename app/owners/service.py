@@ -5,8 +5,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.common.exceptions import PhoneAlreadyExistsError, OwnerNotFoundError
-from app.common.security import hash_pin
+from app.common.exceptions import PhoneAlreadyExistsError, OwnerNotFoundError, IncorrectCurrentPinError
+from app.common.security import hash_pin, verify_pin
 from app.owners.models import Owner
 from app.owners.schemas import OwnerCreate, OwnerResponse
 
@@ -34,3 +34,14 @@ async def get_owner_by_id(owner_id: UUID, db: AsyncSession) -> Owner:
     if not owner:
         raise OwnerNotFoundError()
     return owner
+
+
+async def change_owner_pin(
+    owner_id: UUID, current_pin: str, new_pin: str, db: AsyncSession
+) -> None:
+    """Verify the current PIN then replace it with the new one (hashed)."""
+    owner = await get_owner_by_id(owner_id, db)
+    if not verify_pin(current_pin, owner.pin_hash):
+        raise IncorrectCurrentPinError()
+    owner.pin_hash = hash_pin(new_pin)
+    await db.commit()

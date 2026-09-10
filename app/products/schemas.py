@@ -44,6 +44,7 @@ class ProductResponse(BaseModel):
 class ProductSearchResponse(BaseModel):
     """Lightweight product response for search results."""
     id: UUID
+    shop_id: UUID
     name: str
     photo_url: str | None
     selling_price: Decimal
