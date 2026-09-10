@@ -414,3 +414,138 @@ async def test_search_empty_query_rejected(
         search_url(shop.id), params={"q": ""}, headers=auth(owner_token)
     )
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Category name → product items  (new behaviour: OR(name, category.name))
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_category_name_search_returns_products_in_items(
+    app_client: AsyncClient, owner_token, shop, coke, fanta
+):
+    """Searching 'drink' (partial category name) must return Coke and Fanta
+    in *items*, not just in matched_category."""
+    resp = await app_client.get(
+        search_url(shop.id), params={"q": "drink"}, headers=auth(owner_token)
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    names = {p["name"] for p in data["items"]}
+    assert "Coca-Cola" in names
+    assert "Fanta Orange" in names
+
+
+@pytest.mark.asyncio
+async def test_full_category_name_search_returns_items(
+    app_client: AsyncClient, owner_token, shop, coke, fanta
+):
+    """Exact category name 'Drinks' must return all active products in that
+    category."""
+    resp = await app_client.get(
+        search_url(shop.id), params={"q": "Drinks"}, headers=auth(owner_token)
+    )
+    assert resp.status_code == 200
+    names = {p["name"] for p in resp.json()["items"]}
+    assert "Coca-Cola" in names
+    assert "Fanta Orange" in names
+
+
+@pytest.mark.asyncio
+async def test_category_name_search_case_insensitive(
+    app_client: AsyncClient, owner_token, shop, coke
+):
+    """Case should not matter when searching by category name."""
+    for q in ("drinks", "DRINKS", "DrInKs"):
+        resp = await app_client.get(
+            search_url(shop.id), params={"q": q}, headers=auth(owner_token)
+        )
+        assert resp.status_code == 200
+        names = {p["name"] for p in resp.json()["items"]}
+        assert "Coca-Cola" in names, f"Expected Coca-Cola for q={q!r}"
+
+
+@pytest.mark.asyncio
+async def test_category_name_search_excludes_other_category_products(
+    app_client: AsyncClient, owner_token, shop, coke, fanta, biscuit
+):
+    """Searching the Drinks category name should NOT return Digestive Biscuit
+    (which is in Snacks)."""
+    resp = await app_client.get(
+        search_url(shop.id), params={"q": "drinks"}, headers=auth(owner_token)
+    )
+    assert resp.status_code == 200
+    names = {p["name"] for p in resp.json()["items"]}
+    assert "Digestive Biscuit" not in names
+
+
+@pytest.mark.asyncio
+async def test_product_name_or_category_name_both_return_results(
+    app_client: AsyncClient, owner_token, shop, coke, biscuit
+):
+    """'c' matches Coca-Cola by product name AND the Snacks category prefix —
+    either path must work independently."""
+    resp = await app_client.get(
+        search_url(shop.id), params={"q": "c"}, headers=auth(owner_token)
+    )
+    assert resp.status_code == 200
+    names = {p["name"] for p in resp.json()["items"]}
+    # Coca-Cola matches product name
+    assert "Coca-Cola" in names
+    # Digestive Biscuit is in Snacks (no 'c' in name but 'c' in 'Snacks')
+    # — NOTE: 'c' is in 'Snacks', so biscuit should also appear
+    assert "Digestive Biscuit" in names
+
+
+@pytest.mark.asyncio
+async def test_category_filter_with_query_ignores_category_name_or(
+    app_client: AsyncClient, owner_token, shop, coke, fanta, biscuit, drinks_category
+):
+    """When category_id is supplied the search is name-only (no category-name OR)
+    and results are already constrained to that category."""
+    resp = await app_client.get(
+        search_url(shop.id),
+        params={"q": "snacks", "category_id": str(drinks_category.id)},
+        headers=auth(owner_token),
+    )
+    assert resp.status_code == 200
+    # 'snacks' matches no product name in Drinks — items should be empty
+    assert resp.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_search_respects_limit_param(
+    app_client: AsyncClient, owner_token, shop, coke, fanta, biscuit
+):
+    """limit=1 must return at most 1 product."""
+    resp = await app_client.get(
+        search_url(shop.id), params={"q": "a", "limit": 1}, headers=auth(owner_token)
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()["items"]) <= 1
+
+
+@pytest.mark.asyncio
+async def test_search_inactive_products_excluded_via_category_name(
+    app_client: AsyncClient, owner_token, shop, db_session, drinks_category
+):
+    """Even when a product's category name matches, an inactive product must
+    not appear in results."""
+    inactive = Product(
+        shop_id=shop.id,
+        name="Ghost Cola",
+        selling_price=Decimal("10.00"),
+        stock_quantity=0,
+        category_id=drinks_category.id,
+        is_active=False,
+    )
+    db_session.add(inactive)
+    await db_session.commit()
+
+    resp = await app_client.get(
+        search_url(shop.id), params={"q": "drink"}, headers=auth(owner_token)
+    )
+    assert resp.status_code == 200
+    names = {p["name"] for p in resp.json()["items"]}
+    assert "Ghost Cola" not in names
+

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import aliased, joinedload
 
 from app.categories.models import Category
 from app.common.enums import ActorType, InventoryMovementType
@@ -204,35 +204,57 @@ async def search_products(
     limit: int = 20,
     category_id: UUID | None = None,
 ) -> tuple[Category | None, list[Product]]:
-    """Search active products by name.
+    """Search active products by name **or** category name.
 
-    Also finds the best matching category for the query when no
-    ``category_id`` filter is active, so callers can surface a
-    category-match result to the user.
+    When *category_id* is ``None`` (no explicit filter) the search widens to
+    include products whose category name matches *query*, so a user who types
+    "drink" will see Coke, Fanta, etc. even if the word "drink" does not
+    appear in those product names.
+
+    When *category_id* is provided the search is narrowed to that category and
+    only the product name is checked (the category is already fixed by the
+    caller).
 
     Returns
     -------
     matched_category
         The best-matching ``Category`` (or ``None``).
     products
-        Products whose name matches *query* (optionally filtered by
-        *category_id*).
+        Products matching *query* (optionally filtered by *category_id*).
     """
-    # Category match — only when caller hasn't already narrowed by category
+    # Category match banner — only when caller hasn't already narrowed by category
     matched_category: Category | None = None
     if category_id is None:
         matched_category = await _find_matching_category(shop_id, query, db)
 
-    base_q = (
-        _product_query()
-        .where(
-            Product.shop_id == shop_id,
-            Product.is_active == True,  # noqa: E712
-            Product.name.ilike(f"%{query}%"),
-        )
-    )
     if category_id is not None:
-        base_q = base_q.where(Product.category_id == category_id)
+        # Fast path: caller already selected a category — just match product name.
+        base_q = (
+            _product_query()
+            .where(
+                Product.shop_id == shop_id,
+                Product.is_active == True,  # noqa: E712
+                Product.category_id == category_id,
+                Product.name.ilike(f"%{query}%"),
+            )
+        )
+    else:
+        # Broad path: match product name OR products whose category name matches.
+        # Use an aliased Category so the join for filtering is independent of
+        # the joinedload join used for eager-loading the relationship.
+        cat_alias = aliased(Category, flat=True)
+        base_q = (
+            _product_query()
+            .outerjoin(cat_alias, Product.category_id == cat_alias.id)
+            .where(
+                Product.shop_id == shop_id,
+                Product.is_active == True,  # noqa: E712
+                or_(
+                    Product.name.ilike(f"%{query}%"),
+                    cat_alias.name.ilike(f"%{query}%"),
+                ),
+            )
+        )
 
     result = await db.execute(base_q.order_by(Product.name.asc()).limit(limit))
     return matched_category, list(result.unique().scalars().all())

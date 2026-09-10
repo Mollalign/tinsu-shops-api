@@ -51,7 +51,7 @@ async def list_products(
     response_model=ProductSearchResult,
     summary="Search Products",
     description=(
-        "Case-insensitive product search by name. "
+        "Case-insensitive product search by name or category name. "
         "Also returns a matched_category when the query matches a category name "
         "and no category_id filter is active. "
         "Accessible to workers and owners."
@@ -61,11 +61,12 @@ async def search_products(
     shop_id: UUID,
     q: str = Query(..., min_length=1, max_length=100, description="Search query"),
     category_id: UUID | None = Query(None, description="Narrow results to a category"),
+    limit: int = Query(default=20, ge=1, le=50, description="Max results to return"),
     current_user: Annotated[AuthenticatedUser, Depends(get_current_user)] = None,
     db: Annotated[AsyncSession, Depends(get_db)] = None,
 ) -> ProductSearchResult:
     matched_cat, products = await product_service.search_products(
-        shop_id, q, db, category_id=category_id
+        shop_id, q, db, limit=limit, category_id=category_id
     )
 
     matched_category: CategorySearchResult | None = None
