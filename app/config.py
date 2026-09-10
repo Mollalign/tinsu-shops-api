@@ -34,11 +34,36 @@ class Settings(BaseSettings):
     DEFAULT_PAGE_SIZE: int = 20
     MAX_PAGE_SIZE: int = 100
 
-    # Image uploads — local disk. Vercel serverless storage is ephemeral;
-    # set PUBLIC_BASE_URL so Android devices can reach the returned URLs.
+    # Image uploads. When R2 is configured, files go to Cloudflare R2.
+    # Otherwise they are stored on local disk (tests / offline development).
     UPLOAD_DIR: str = "uploads"
     PUBLIC_BASE_URL: str = ""
     MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024  # 5 MB
+
+    # Cloudflare R2 (S3-compatible). Leave empty to keep local disk storage.
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET_NAME: str = ""
+    # Public URL prefix, e.g. https://pub-xxxxx.r2.dev or https://images.yourdomain.com
+    R2_PUBLIC_BASE_URL: str = ""
+    R2_ENDPOINT_URL: str = ""
+
+    @property
+    def r2_enabled(self) -> bool:
+        return bool(
+            self.R2_ACCOUNT_ID
+            and self.R2_ACCESS_KEY_ID
+            and self.R2_SECRET_ACCESS_KEY
+            and self.R2_BUCKET_NAME
+            and self.R2_PUBLIC_BASE_URL
+        )
+
+    @property
+    def r2_endpoint_url(self) -> str:
+        if self.R2_ENDPOINT_URL:
+            return self.R2_ENDPOINT_URL.rstrip("/")
+        return f"https://{self.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
     @property
     def is_production(self) -> bool:

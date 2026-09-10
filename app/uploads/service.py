@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -15,6 +16,7 @@ from app.common.exceptions import (
 )
 from app.config import settings
 from app.shops.service import get_shop_for_owner
+from app.uploads import r2 as r2_storage
 
 # Magic-byte signatures — never trust the client filename or Content-Type alone.
 _JPEG = b"\xff\xd8\xff"
@@ -58,6 +60,8 @@ def content_type_for(filename: str) -> str:
 
 def public_image_url(filename: str, request: Request | None = None) -> str:
     """Build a client-reachable URL. Never return a filesystem path."""
+    if settings.r2_enabled:
+        return r2_storage.r2_public_url(filename)
     base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
     if not base and request is not None:
         base = str(request.base_url).rstrip("/")
@@ -114,13 +118,26 @@ async def save_product_image(
         raise InvalidImageTypeError()
 
     filename = f"product-image-{uuid4()}.{ext}"
-    dest_dir = products_dir()
+    content_type = content_type_for(filename)
+
     try:
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / filename
-        async with aiofiles.open(dest, "wb") as f:
-            await f.write(data)
-    except OSError as exc:
+        if settings.r2_enabled:
+            await _save_to_r2(filename, data, content_type)
+        else:
+            await _save_to_disk(filename, data)
+    except (*r2_storage.r2_storage_errors(), OSError) as exc:
         raise ImageStorageError() from exc
 
     return public_image_url(filename, request)
+
+
+async def _save_to_r2(filename: str, data: bytes, content_type: str) -> None:
+    await asyncio.to_thread(r2_storage.put_product_image, filename, data, content_type)
+
+
+async def _save_to_disk(filename: str, data: bytes) -> None:
+    dest_dir = products_dir()
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / filename
+    async with aiofiles.open(dest, "wb") as f:
+        await f.write(data)

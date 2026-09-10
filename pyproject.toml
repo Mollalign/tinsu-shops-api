@@ -8,6 +8,7 @@ dependencies = [
     "aiofiles>=25.1.0",
     "alembic>=1.19.1",
     "asyncpg>=0.31.0",
+    "boto3>=1.43.92",
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
     "passlib[argon2]>=1.7.4",

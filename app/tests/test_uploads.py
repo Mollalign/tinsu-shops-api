@@ -34,6 +34,12 @@ def isolated_upload_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "UPLOAD_DIR", str(tmp_path / "uploads"))
     monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "http://test")
     monkeypatch.setattr(settings, "MAX_UPLOAD_BYTES", 5 * 1024 * 1024)
+    # Never hit real R2 during default tests
+    monkeypatch.setattr(settings, "R2_ACCOUNT_ID", "")
+    monkeypatch.setattr(settings, "R2_ACCESS_KEY_ID", "")
+    monkeypatch.setattr(settings, "R2_SECRET_ACCESS_KEY", "")
+    monkeypatch.setattr(settings, "R2_BUCKET_NAME", "")
+    monkeypatch.setattr(settings, "R2_PUBLIC_BASE_URL", "")
     (tmp_path / "uploads" / "products").mkdir(parents=True)
 
 
@@ -300,3 +306,82 @@ async def test_update_product_clears_photo_url(
     )
     assert resp.status_code == 200
     assert resp.json()["photo_url"] is None
+
+
+# ---------------------------------------------------------------------------
+# Cloudflare R2
+# ---------------------------------------------------------------------------
+
+def _enable_r2(monkeypatch) -> list[dict]:
+    monkeypatch.setattr(settings, "R2_ACCOUNT_ID", "acc123")
+    monkeypatch.setattr(settings, "R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setattr(settings, "R2_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setattr(settings, "R2_BUCKET_NAME", "tinsu-product-images")
+    monkeypatch.setattr(settings, "R2_PUBLIC_BASE_URL", "https://images.example.com")
+    puts: list[dict] = []
+
+    def fake_put(filename: str, data: bytes, content_type: str) -> None:
+        puts.append(
+            {"filename": filename, "data": data, "content_type": content_type}
+        )
+
+    monkeypatch.setattr("app.uploads.r2.put_product_image", fake_put)
+    return puts
+
+
+@pytest.mark.asyncio
+async def test_upload_uses_r2_when_configured(
+    app_client: AsyncClient, owner_token, shop, monkeypatch
+):
+    puts = _enable_r2(monkeypatch)
+    resp = await app_client.post(
+        upload_url(shop.id),
+        files={"file": ("a.png", PNG_1X1, "image/png")},
+        headers=auth(owner_token),
+    )
+    assert resp.status_code == 201, resp.text
+    url = resp.json()["url"]
+    assert url.startswith("https://images.example.com/products/product-image-")
+    assert url.endswith(".png")
+    assert "/media/" not in url
+    assert len(puts) == 1
+    assert puts[0]["data"] == PNG_1X1
+    assert puts[0]["content_type"] == "image/png"
+
+
+@pytest.mark.asyncio
+async def test_r2_upload_does_not_write_local_disk(
+    app_client: AsyncClient, owner_token, shop, monkeypatch, tmp_path
+):
+    _enable_r2(monkeypatch)
+    await app_client.post(
+        upload_url(shop.id),
+        files={"file": ("a.png", PNG_1X1, "image/png")},
+        headers=auth(owner_token),
+    )
+    products = tmp_path / "uploads" / "products"
+    assert list(products.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_r2_failure_returns_storage_error(
+    app_client: AsyncClient, owner_token, shop, monkeypatch
+):
+    from botocore.exceptions import ClientError
+
+    _enable_r2(monkeypatch)
+
+    def boom(filename: str, data: bytes, content_type: str) -> None:
+        raise ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "denied"}},
+            "PutObject",
+        )
+
+    monkeypatch.setattr("app.uploads.r2.put_product_image", boom)
+    resp = await app_client.post(
+        upload_url(shop.id),
+        files={"file": ("a.png", PNG_1X1, "image/png")},
+        headers=auth(owner_token),
+    )
+    assert resp.status_code == 500
+    assert resp.json()["detail"]["code"] == "IMAGE_STORAGE_ERROR"
