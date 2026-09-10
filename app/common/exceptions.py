@@ -189,3 +189,40 @@ class CategoryNotFoundError(AppException):
             "CATEGORY_NOT_FOUND",
             "Category not found.",
         )
+
+
+# --- Image upload ---
+class EmptyImageError(AppException):
+    def __init__(self):
+        super().__init__(
+            status.HTTP_400_BAD_REQUEST,
+            "EMPTY_IMAGE",
+            "The image file is empty.",
+        )
+
+
+class InvalidImageTypeError(AppException):
+    def __init__(self):
+        super().__init__(
+            status.HTTP_400_BAD_REQUEST,
+            "INVALID_IMAGE_TYPE",
+            "That file type is not supported. Use a JPEG, PNG, or WebP image.",
+        )
+
+
+class ImageTooLargeError(AppException):
+    def __init__(self):
+        super().__init__(
+            status.HTTP_400_BAD_REQUEST,
+            "IMAGE_TOO_LARGE",
+            "Image is too large.",
+        )
+
+
+class ImageStorageError(AppException):
+    def __init__(self):
+        super().__init__(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "IMAGE_STORAGE_ERROR",
+            "Couldn't save the image. Please try again.",
+        )

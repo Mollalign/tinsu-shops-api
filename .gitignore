@@ -9,3 +9,7 @@ wheels/
 # Virtual environments
 .venv
 .env
+
+# Uploaded product images (keep directory)
+uploads/products/*
+!uploads/products/.gitkeep

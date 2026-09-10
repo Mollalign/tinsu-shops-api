@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     DEFAULT_PAGE_SIZE: int = 20
     MAX_PAGE_SIZE: int = 100
 
+    # Image uploads — local disk. Vercel serverless storage is ephemeral;
+    # set PUBLIC_BASE_URL so Android devices can reach the returned URLs.
+    UPLOAD_DIR: str = "uploads"
+    PUBLIC_BASE_URL: str = ""
+    MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024  # 5 MB
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"

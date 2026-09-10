@@ -15,6 +15,8 @@ from app.public_api.router import router as public_router
 from app.reports.router import router as reports_router
 from app.sales.router import router as sales_router
 from app.shops.router import router as shops_router
+from app.uploads.router import media_router
+from app.uploads.router import router as uploads_router
 from app.workers.router import router as workers_router
 
 
@@ -63,6 +65,8 @@ def create_app() -> FastAPI:
     app.include_router(workers_router, prefix=prefix)
     app.include_router(categories_router, prefix=prefix)
     app.include_router(products_router, prefix=prefix)
+    app.include_router(uploads_router, prefix=prefix)
+    app.include_router(media_router)
     app.include_router(inventory_router, prefix=prefix)
     app.include_router(sales_router, prefix=prefix)
 

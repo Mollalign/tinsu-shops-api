@@ -20,7 +20,7 @@ class ProductUpdate(BaseModel):
     selling_price: Decimal | None = Field(None, gt=0, decimal_places=2)
     low_stock_threshold: int | None = Field(None, ge=0)
     category_id: UUID | None = None
-    photo_url: str | None = None
+    photo_url: str | None = Field(None, max_length=2048)
     is_active: bool | None = None
 
 
